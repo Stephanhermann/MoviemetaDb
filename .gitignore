@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.env
+.venv/
+.env.*
+
+# temporary test artifacts
+tests/tmp/
+
+# packaging
+dist/
+build/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
