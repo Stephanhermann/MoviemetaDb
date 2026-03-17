@@ -17,3 +17,7 @@ build/
 .vscode/
 .idea/
 *.swp
+
+# Frontend (UI)
+ui/node_modules/
+ui/dist/

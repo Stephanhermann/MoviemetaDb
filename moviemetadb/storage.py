@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-import sqlite3
+import os
 from dataclasses import asdict
 from pathlib import Path
-from typing import Iterable, List, Optional, Union
+from typing import List, Optional, Union
 
 from . import Movie
 
@@ -32,8 +32,30 @@ class JsonMovieStore:
         with self.path.open("w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
-    def list(self) -> List[Movie]:
-        return [Movie(**d) for d in self._read()]
+    def list(
+        self,
+        min_year: Optional[int] = None,
+        max_year: Optional[int] = None,
+        min_rating: Optional[float] = None,
+        max_rating: Optional[float] = None,
+        sort: str = "title",
+        limit: Optional[int] = None,
+    ) -> List[Movie]:
+        movies = [Movie(**d) for d in self._read()]
+
+        if min_year is not None:
+            movies = [m for m in movies if m.year >= min_year]
+        if max_year is not None:
+            movies = [m for m in movies if m.year <= max_year]
+        if min_rating is not None:
+            movies = [m for m in movies if m.rating >= min_rating]
+        if max_rating is not None:
+            movies = [m for m in movies if m.rating <= max_rating]
+
+        movies.sort(key=lambda m: getattr(m, sort))
+        if limit is not None:
+            movies = movies[:limit]
+        return movies
 
     def add(self, movie: Movie) -> None:
         movies = self._read()
@@ -60,9 +82,32 @@ class JsonMovieStore:
         self._write(remaining)
         return Movie(**removed)
 
-    def search(self, query: str) -> List[Movie]:
+    def search(
+        self,
+        query: str,
+        min_year: Optional[int] = None,
+        max_year: Optional[int] = None,
+        min_rating: Optional[float] = None,
+        max_rating: Optional[float] = None,
+        sort: str = "title",
+        limit: Optional[int] = None,
+    ) -> List[Movie]:
         q = query.strip().lower()
-        return [Movie(**d) for d in self._read() if q in d.get("title", "").lower()]
+        movies = [Movie(**d) for d in self._read() if q in d.get("title", "").lower()]
+
+        if min_year is not None:
+            movies = [m for m in movies if m.year >= min_year]
+        if max_year is not None:
+            movies = [m for m in movies if m.year <= max_year]
+        if min_rating is not None:
+            movies = [m for m in movies if m.rating >= min_rating]
+        if max_rating is not None:
+            movies = [m for m in movies if m.rating <= max_rating]
+
+        movies.sort(key=lambda m: getattr(m, sort))
+        if limit is not None:
+            movies = movies[:limit]
+        return movies
 
     def update_rating(self, title: str, year: int, rating: float) -> Movie:
         """Update rating for a specific title+year."""
@@ -82,98 +127,207 @@ class JsonMovieStore:
         return Movie(**updated)
 
 
-class SqliteMovieStore:
-    """A SQLite-backed movie store."""
+try:
+    from sqlalchemy import (
+        Column,
+        Float,
+        Integer,
+        String,
+        create_engine,
+        select,
+        update as sqlalchemy_update,
+        delete as sqlalchemy_delete,
+    )
+    from sqlalchemy.exc import NoResultFound
+    from sqlalchemy.orm import declarative_base, Session
 
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._ensure_schema()
+    SQLALCHEMY_AVAILABLE = True
+except ImportError as exc:
+    SQLALCHEMY_AVAILABLE = False
+    _sqlalchemy_import_error = exc
 
-    def _conn(self) -> sqlite3.Connection:
-        return sqlite3.connect(str(self.path), isolation_level=None)
 
-    def _ensure_schema(self) -> None:
-        with self._conn() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS movies (
-                    id INTEGER PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    year INTEGER NOT NULL,
-                    rating REAL NOT NULL DEFAULT 0.0,
-                    UNIQUE(title, year)
+if SQLALCHEMY_AVAILABLE:
+    Base = declarative_base()
+
+
+    class MovieRow(Base):
+        __tablename__ = "movies"
+        id = Column(Integer, primary_key=True)
+        title = Column(String, nullable=False)
+        year = Column(Integer, nullable=False)
+        rating = Column(Float, nullable=False, default=0.0)
+
+        __table_args__ = {"sqlite_autoincrement": True}
+
+
+    class SqlAlchemyMovieStore:
+        """A SQLAlchemy-backed movie store (SQLite/PostgreSQL)."""
+
+        def __init__(self, url: str) -> None:
+            if not SQLALCHEMY_AVAILABLE:
+                raise RuntimeError(
+                    "SQLAlchemy is not installed. Install with `pip install 'moviemetadb[db]'`"
                 )
-                """
-            )
+            self.engine = create_engine(url, future=True)
+            Base.metadata.create_all(self.engine)
 
-    def list(self) -> List[Movie]:
-        with self._conn() as conn:
-            cur = conn.execute("SELECT title, year, rating FROM movies ORDER BY title")
-            return [Movie(title=row[0], year=row[1], rating=row[2]) for row in cur.fetchall()]
+        def _session(self) -> Session:
+            return Session(self.engine)
 
-    def add(self, movie: Movie) -> None:
-        with self._conn() as conn:
-            conn.execute(
-                """
-                INSERT INTO movies (title, year, rating)
-                VALUES (?, ?, ?)
-                ON CONFLICT(title, year) DO UPDATE SET rating = excluded.rating
-                """,
-                (movie.title, movie.year, movie.rating),
-            )
+        def _apply_filters(
+            self,
+            stmt,
+            min_year: Optional[int],
+            max_year: Optional[int],
+            min_rating: Optional[float],
+            max_rating: Optional[float],
+        ):
+            if min_year is not None:
+                stmt = stmt.where(MovieRow.year >= min_year)
+            if max_year is not None:
+                stmt = stmt.where(MovieRow.year <= max_year)
+            if min_rating is not None:
+                stmt = stmt.where(MovieRow.rating >= min_rating)
+            if max_rating is not None:
+                stmt = stmt.where(MovieRow.rating <= max_rating)
+            return stmt
 
-    def remove(self, title: str, year: Optional[int] = None) -> Movie:
-        stmt = "SELECT id, title, year, rating FROM movies WHERE LOWER(title) = LOWER(?)"
-        params: List[Union[str, int]] = [title]
-        if year is not None:
-            stmt += " AND year = ?"
-            params.append(year)
+        def list(
+            self,
+            min_year: Optional[int] = None,
+            max_year: Optional[int] = None,
+            min_rating: Optional[float] = None,
+            max_rating: Optional[float] = None,
+            sort: str = "title",
+            limit: Optional[int] = None,
+        ) -> List[Movie]:
+            stmt = select(MovieRow)
+            stmt = self._apply_filters(stmt, min_year, max_year, min_rating, max_rating)
 
-        with self._conn() as conn:
-            cur = conn.execute(stmt, params)
-            row = cur.fetchone()
-            if row is None:
-                raise MovieNotFoundError(f"Movie not found: {title} ({year if year else 'any year'})")
-            movie = Movie(title=row[1], year=row[2], rating=row[3])
-            conn.execute("DELETE FROM movies WHERE id = ?", (row[0],))
-            return movie
+            order_col = {
+                "title": MovieRow.title,
+                "year": MovieRow.year,
+                "rating": MovieRow.rating,
+            }.get(sort, MovieRow.title)
 
-    def search(self, query: str) -> List[Movie]:
-        q = f"%{query.strip().lower()}%"
-        with self._conn() as conn:
-            cur = conn.execute(
-                "SELECT title, year, rating FROM movies WHERE LOWER(title) LIKE ? ORDER BY title",
-                (q,),
-            )
-            return [Movie(title=row[0], year=row[1], rating=row[2]) for row in cur.fetchall()]
+            stmt = stmt.order_by(order_col)
+            if limit is not None:
+                stmt = stmt.limit(limit)
 
-    def update_rating(self, title: str, year: int, rating: float) -> Movie:
-        with self._conn() as conn:
-            cur = conn.execute(
-                "SELECT id, title, year, rating FROM movies WHERE LOWER(title) = LOWER(?) AND year = ?",
-                (title, year),
-            )
-            row = cur.fetchone()
-            if row is None:
-                raise MovieNotFoundError(f"Movie not found: {title} ({year})")
-            conn.execute(
-                "UPDATE movies SET rating = ? WHERE id = ?",
-                (rating, row[0]),
-            )
-            return Movie(title=row[1], year=row[2], rating=rating)
+            with self._session() as session:
+                rows = session.execute(stmt).scalars().all()
+                return [Movie(title=r.title, year=r.year, rating=r.rating) for r in rows]
+
+        def add(self, movie: Movie) -> None:
+            with self._session() as session:
+                existing = (
+                    session.execute(
+                        select(MovieRow)
+                        .where(MovieRow.title == movie.title)
+                        .where(MovieRow.year == movie.year)
+                    )
+                    .scalars()
+                    .first()
+                )
+                if existing:
+                    existing.rating = movie.rating
+                else:
+                    session.add(MovieRow(title=movie.title, year=movie.year, rating=movie.rating))
+                session.commit()
+
+        def remove(self, title: str, year: Optional[int] = None) -> Movie:
+            stmt = select(MovieRow).where(MovieRow.title.ilike(title))
+            if year is not None:
+                stmt = stmt.where(MovieRow.year == year)
+            with self._session() as session:
+                row = session.execute(stmt).scalars().first()
+                if row is None:
+                    raise MovieNotFoundError(f"Movie not found: {title} ({year if year else 'any year'})")
+                movie = Movie(title=row.title, year=row.year, rating=row.rating)
+                session.execute(sqlalchemy_delete(MovieRow).where(MovieRow.id == row.id))
+                session.commit()
+                return movie
+
+        def search(
+            self,
+            query: str,
+            min_year: Optional[int] = None,
+            max_year: Optional[int] = None,
+            min_rating: Optional[float] = None,
+            max_rating: Optional[float] = None,
+            sort: str = "title",
+            limit: Optional[int] = None,
+        ) -> List[Movie]:
+            q = f"%{query.strip().lower()}%"
+            stmt = select(MovieRow).where(MovieRow.title.ilike(q))
+            stmt = self._apply_filters(stmt, min_year, max_year, min_rating, max_rating)
+
+            order_col = {
+                "title": MovieRow.title,
+                "year": MovieRow.year,
+                "rating": MovieRow.rating,
+            }.get(sort, MovieRow.title)
+
+            stmt = stmt.order_by(order_col)
+            if limit is not None:
+                stmt = stmt.limit(limit)
+
+            with self._session() as session:
+                rows = session.execute(stmt).scalars().all()
+                return [Movie(title=r.title, year=r.year, rating=r.rating) for r in rows]
+
+        def update_rating(self, title: str, year: int, rating: float) -> Movie:
+            with self._session() as session:
+                row = (
+                    session.execute(
+                        select(MovieRow)
+                        .where(MovieRow.title.ilike(title))
+                        .where(MovieRow.year == year)
+                    )
+                    .scalars()
+                    .first()
+                )
+                if row is None:
+                    raise MovieNotFoundError(f"Movie not found: {title} ({year})")
+                row.rating = rating
+                session.commit()
+                return Movie(title=row.title, year=row.year, rating=row.rating)
 
 
-def get_store(path: Path) -> Union[JsonMovieStore, SqliteMovieStore]:
-    """Get the appropriate store based on the path extension."""
-    if path.suffix in {".db", ".sqlite", ".sqlite3"}:
-        return SqliteMovieStore(path)
-    return JsonMovieStore(path)
+def get_store(path: Union[Path, str]) -> Union[JsonMovieStore, "SqlAlchemyMovieStore"]:
+    """Get the appropriate store.
+
+    The database may be:
+    - a JSON file (`*.json`)
+    - a sqlite file (`*.db`, `*.sqlite`, `*.sqlite3`) (uses SQLAlchemy)
+    - a full SQLAlchemy URL (e.g., `postgresql://...` or `sqlite:///...`)
+    """
+
+    if isinstance(path, Path):
+        path = str(path)
+
+    # Use env override if provided
+    path = os.getenv("MOVIEMETADB_DATABASE_URL", path)
+
+    if path.lower().endswith(".json"):
+        return JsonMovieStore(Path(path))
+
+    # Treat as SQLAlchemy URL (SQLite or Postgres)
+    if not SQLALCHEMY_AVAILABLE:
+        raise RuntimeError(
+            "SQLAlchemy is required for database storage. Install with `pip install 'moviemetadb[db]'`."
+        )
+
+    if path.startswith("sqlite://") or path.startswith("postgresql://") or path.startswith("postgres://"):
+        return SqlAlchemyMovieStore(path)
+
+    # Treat as path to local sqlite file
+    return SqlAlchemyMovieStore(f"sqlite:///{Path(path).expanduser().resolve()}")
 
 
 __all__ = [
     "JsonMovieStore",
-    "SqliteMovieStore",
     "MovieNotFoundError",
     "get_store",
 ]

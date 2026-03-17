@@ -43,6 +43,20 @@ This project uses a standard Python packaging layout.
   moviemetadb serve --host 0.0.0.0 --port 8000
   ```
 
+- Run the development React UI (optional):
+  ```bash
+  cd ui
+  npm install
+  npm run dev
+  ```
+
+- Run PostgreSQL locally with Docker Compose:
+  ```bash
+  docker-compose up -d
+  export MOVIEMETADB_DATABASE_URL="postgresql://moviemetadb:moviemetadb@localhost:5432/moviemetadb"
+  moviemetadb serve
+  ```
+
 ## Conventions
 - Keep changes small and focused
 - Prefer clear, idiomatic code in Python

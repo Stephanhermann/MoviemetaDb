@@ -10,16 +10,20 @@ from . import Movie
 from .storage import MovieNotFoundError, get_store
 
 
-DEFAULT_DB = Path("moviemetadb.db")
+DEFAULT_DB = "moviemetadb.db"
 
 
 def _run_cli(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="moviemetadb")
     parser.add_argument(
         "--db",
-        type=Path,
+        type=str,
         default=DEFAULT_DB,
-        help="Path to the movie metadata JSON database (default: moviemetadb.json)",
+        help=(
+            "Database to use (SQLite file by default). "
+            "You can also specify a JSON file ("".json"") or a full SQLAlchemy URL "
+            "(e.g., postgresql://user:pass@host:5432/db)."
+        ),
     )
 
     sub = parser.add_subparsers(dest="command", required=True)
@@ -32,10 +36,21 @@ def _run_cli(argv: list[str] | None = None) -> int:
 
     list_cmd = sub.add_parser("list", help="List stored movies")
     list_cmd.add_argument("--sort", choices=["title", "year", "rating"], default="title")
+    list_cmd.add_argument("--min-year", type=int, help="Filter by minimum release year")
+    list_cmd.add_argument("--max-year", type=int, help="Filter by maximum release year")
+    list_cmd.add_argument("--min-rating", type=float, help="Filter by minimum rating")
+    list_cmd.add_argument("--max-rating", type=float, help="Filter by maximum rating")
+    list_cmd.add_argument("--limit", type=int, help="Limit number of results")
     list_cmd.set_defaults(func=_cmd_list)
 
     search = sub.add_parser("search", help="Search movies by title")
     search.add_argument("query", type=str, help="Search query")
+    search.add_argument("--sort", choices=["title", "year", "rating"], default="title")
+    search.add_argument("--min-year", type=int, help="Filter by minimum release year")
+    search.add_argument("--max-year", type=int, help="Filter by maximum release year")
+    search.add_argument("--min-rating", type=float, help="Filter by minimum rating")
+    search.add_argument("--max-rating", type=float, help="Filter by maximum rating")
+    search.add_argument("--limit", type=int, help="Limit number of results")
     search.set_defaults(func=_cmd_search)
 
     remove = sub.add_parser("remove", help="Remove a movie")
@@ -58,7 +73,7 @@ def _run_cli(argv: list[str] | None = None) -> int:
     return args.func(args)
 
 
-def _create_store(db_path: Path) -> object:
+def _create_store(db_path: str) -> object:
     return get_store(db_path)
 
 
@@ -72,13 +87,18 @@ def _cmd_add(args: argparse.Namespace) -> int:
 
 def _cmd_list(args: argparse.Namespace) -> int:
     store = _create_store(args.db)
-    movies = store.list()
+    movies = store.list(
+        min_year=args.min_year,
+        max_year=args.max_year,
+        min_rating=args.min_rating,
+        max_rating=args.max_rating,
+        sort=args.sort,
+        limit=args.limit,
+    )
+
     if not movies:
         print("No movies found.")
         return 0
-
-    key = args.sort
-    movies.sort(key=lambda m: getattr(m, key))
 
     for m in movies:
         print(f"- {m.title} ({m.year}) — rating: {m.rating}")
@@ -87,7 +107,15 @@ def _cmd_list(args: argparse.Namespace) -> int:
 
 def _cmd_search(args: argparse.Namespace) -> int:
     store = _create_store(args.db)
-    results = store.search(args.query)
+    results = store.search(
+        args.query,
+        min_year=args.min_year,
+        max_year=args.max_year,
+        min_rating=args.min_rating,
+        max_rating=args.max_rating,
+        sort=args.sort,
+        limit=args.limit,
+    )
     if not results:
         print("No matches found.")
         return 0

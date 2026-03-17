@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 try:
-    from fastapi import FastAPI, HTTPException
+    from fastapi import Depends, FastAPI, HTTPException, Security
+    from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
     from pydantic import BaseModel
 except ImportError as exc:
     raise ImportError(
         "FastAPI is not installed. Install with `pip install 'moviemetadb[web]'` to use the web API."
     ) from exc
 
-from .storage import JsonMovieStore, MovieNotFoundError
+from .storage import MovieNotFoundError, get_store
 
 
 class MovieIn(BaseModel):
@@ -23,10 +25,22 @@ class MovieIn(BaseModel):
 
 app = FastAPI(title="MoviemetaDb API")
 
-store: JsonMovieStore | None = None
+store = None
+
+security = HTTPBearer(auto_error=False)
 
 
-def get_store() -> JsonMovieStore:
+def _require_api_key(cred: HTTPAuthorizationCredentials | None = Security(security)) -> bool:
+    """Allow requests when no API key is configured, otherwise require Bearer token."""
+    expected = os.getenv("MOVIEMETADB_API_KEY")
+    if not expected:
+        return True
+    if not cred or cred.scheme.lower() != "bearer" or cred.credentials != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    return True
+
+
+def _get_store_instance() -> object:
     if store is None:
         raise RuntimeError("Movie store not configured")
     return store
@@ -35,29 +49,59 @@ def get_store() -> JsonMovieStore:
 @app.on_event("startup")
 def _startup() -> None:
     global store
-    store = JsonMovieStore(Path("moviemetadb.json"))
+    store = get_store(os.getenv("MOVIEMETADB_DATABASE_URL", "moviemetadb.db"))
 
 
-@app.get("/movies")
-def list_movies() -> list[MovieIn]:
-    return get_store().list()
+@app.get("/movies", dependencies=[Depends(_require_api_key)])
+def list_movies(
+    min_year: int | None = None,
+    max_year: int | None = None,
+    min_rating: float | None = None,
+    max_rating: float | None = None,
+    sort: str = "title",
+    limit: int | None = None,
+) -> list[MovieIn]:
+    return _get_store_instance().list(
+        min_year=min_year,
+        max_year=max_year,
+        min_rating=min_rating,
+        max_rating=max_rating,
+        sort=sort,
+        limit=limit,
+    )
 
 
-@app.post("/movies", status_code=201)
+@app.post("/movies", status_code=201, dependencies=[Depends(_require_api_key)])
 def create_movie(movie: MovieIn) -> MovieIn:
-    get_store().add(movie)
+    _get_store_instance().add(movie)
     return movie
 
 
-@app.get("/movies/search")
-def search_movies(q: str) -> list[MovieIn]:
-    return get_store().search(q)
+@app.get("/movies/search", dependencies=[Depends(_require_api_key)])
+def search_movies(
+    q: str,
+    min_year: int | None = None,
+    max_year: int | None = None,
+    min_rating: float | None = None,
+    max_rating: float | None = None,
+    sort: str = "title",
+    limit: int | None = None,
+) -> list[MovieIn]:
+    return _get_store_instance().search(
+        q,
+        min_year=min_year,
+        max_year=max_year,
+        min_rating=min_rating,
+        max_rating=max_rating,
+        sort=sort,
+        limit=limit,
+    )
 
 
-@app.delete("/movies")
+@app.delete("/movies", dependencies=[Depends(_require_api_key)])
 def delete_movie(title: str, year: int | None = None) -> MovieIn:
     try:
-        removed = get_store().remove(title, year)
+        removed = _get_store_instance().remove(title, year)
         return removed
     except MovieNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
