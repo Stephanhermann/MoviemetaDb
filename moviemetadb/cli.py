@@ -3,49 +3,17 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
-from . import Movie, normalize_title, to_dict
+from . import Movie
+from .storage import JsonMovieStore, MovieNotFoundError
 
 
 DEFAULT_DB = Path("moviemetadb.json")
 
 
-def load_db(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def save_db(path: Path, movies: list[dict]) -> None:
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(movies, f, indent=2, ensure_ascii=False)
-
-
-def add_movie(args: argparse.Namespace) -> int:
-    movie = Movie(title=args.title, year=args.year, rating=args.rating)
-    db = load_db(args.db)
-    db.append(to_dict(movie))
-    save_db(args.db, db)
-    print(f"Added {movie.title} ({movie.year}) to {args.db}")
-    return 0
-
-
-def list_movies(args: argparse.Namespace) -> int:
-    db = load_db(args.db)
-    if not db:
-        print("No movies found.")
-        return 0
-
-    for entry in db:
-        print(f"- {entry['title']} ({entry['year']}) — rating: {entry.get('rating', 0)}")
-    return 0
-
-
-def main(argv: list[str] | None = None) -> int:
+def _run_cli(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="moviemetadb")
     parser.add_argument(
         "--db",
@@ -60,13 +28,116 @@ def main(argv: list[str] | None = None) -> int:
     add.add_argument("title", type=str, help="Movie title")
     add.add_argument("year", type=int, help="Release year")
     add.add_argument("--rating", type=float, default=0.0, help="Movie rating")
-    add.set_defaults(func=add_movie)
+    add.set_defaults(func=_cmd_add)
 
     list_cmd = sub.add_parser("list", help="List stored movies")
-    list_cmd.set_defaults(func=list_movies)
+    list_cmd.add_argument("--sort", choices=["title", "year", "rating"], default="title")
+    list_cmd.set_defaults(func=_cmd_list)
+
+    search = sub.add_parser("search", help="Search movies by title")
+    search.add_argument("query", type=str, help="Search query")
+    search.set_defaults(func=_cmd_search)
+
+    remove = sub.add_parser("remove", help="Remove a movie")
+    remove.add_argument("title", type=str, help="Movie title")
+    remove.add_argument("--year", type=int, help="Release year (optional)")
+    remove.set_defaults(func=_cmd_remove)
+
+    update = sub.add_parser("update-rating", help="Update a movie rating")
+    update.add_argument("title", type=str, help="Movie title")
+    update.add_argument("year", type=int, help="Release year")
+    update.add_argument("rating", type=float, help="New rating")
+    update.set_defaults(func=_cmd_update_rating)
+
+    serve = sub.add_parser("serve", help="Run the web API server (FastAPI)")
+    serve.add_argument("--host", default="127.0.0.1", help="Host to bind to")
+    serve.add_argument("--port", type=int, default=8000, help="Port to listen on")
+    serve.set_defaults(func=_cmd_serve)
 
     args = parser.parse_args(argv)
     return args.func(args)
+
+
+def _create_store(db_path: Path) -> JsonMovieStore:
+    return JsonMovieStore(db_path)
+
+
+def _cmd_add(args: argparse.Namespace) -> int:
+    store = _create_store(args.db)
+    movie = Movie(title=args.title, year=args.year, rating=args.rating)
+    store.add(movie)
+    print(f"Added {movie.title} ({movie.year}) to {args.db}")
+    return 0
+
+
+def _cmd_list(args: argparse.Namespace) -> int:
+    store = _create_store(args.db)
+    movies = store.list()
+    if not movies:
+        print("No movies found.")
+        return 0
+
+    key = args.sort
+    movies.sort(key=lambda m: getattr(m, key))
+
+    for m in movies:
+        print(f"- {m.title} ({m.year}) — rating: {m.rating}")
+    return 0
+
+
+def _cmd_search(args: argparse.Namespace) -> int:
+    store = _create_store(args.db)
+    results = store.search(args.query)
+    if not results:
+        print("No matches found.")
+        return 0
+
+    for m in results:
+        print(f"- {m.title} ({m.year}) — rating: {m.rating}")
+    return 0
+
+
+def _cmd_remove(args: argparse.Namespace) -> int:
+    store = _create_store(args.db)
+    try:
+        removed = store.remove(args.title, args.year)
+        print(f"Removed {removed.title} ({removed.year})")
+        return 0
+    except MovieNotFoundError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+
+def _cmd_update_rating(args: argparse.Namespace) -> int:
+    store = _create_store(args.db)
+    try:
+        updated = store.update_rating(args.title, args.year, args.rating)
+        print(f"Updated {updated.title} ({updated.year}) rating to {updated.rating}")
+        return 0
+    except MovieNotFoundError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    try:
+        import uvicorn
+    except ImportError:
+        print("uvicorn is not installed. Install it with `pip install 'moviemetadb[web]'`.")
+        return 1
+
+    try:
+        from .web import app
+    except ImportError as exc:
+        print(exc)
+        return 1
+
+    uvicorn.run(app, host=args.host, port=args.port)
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    return _run_cli(argv)
 
 
 if __name__ == "__main__":

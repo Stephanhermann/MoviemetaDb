@@ -1,39 +1,54 @@
 """Tests for the `moviemetadb` CLI."""
 
-import io
 import json
+import subprocess
 import sys
 import unittest
 from pathlib import Path
 
-from moviemetadb.cli import add_movie, list_movies
+from moviemetadb import __version__
 
 
 class CliTest(unittest.TestCase):
-    def test_add_and_list_movie(self):
-        tmp_dir = Path(__file__).resolve().parent / "tmp"
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-        db_path = tmp_dir / "movies.json"
+    def setUp(self) -> None:
+        self.tmp = Path(__file__).resolve().parent / "tmp"
+        self.tmp.mkdir(parents=True, exist_ok=True)
+        self.db_path = self.tmp / "movies.json"
 
-        # Add a movie
-        args = type("A", (), {"title": "Inception", "year": 2010, "rating": 8.8, "db": db_path})
-        self.assertEqual(add_movie(args), 0)
+    def tearDown(self) -> None:
+        if self.db_path.exists():
+            self.db_path.unlink()
 
-        # Validate file created
-        data = json.loads(db_path.read_text(encoding="utf-8"))
-        self.assertEqual(data[0]["title"], "Inception")
+    def _run_cli(self, args: list[str]) -> str:
+        """Run the installed `moviemetadb` CLI using the current Python environment."""
+        # Use `python -m moviemetadb.cli` to avoid relying on console_scripts entrypoints in tests
+        proc = subprocess.run(
+            [sys.executable, "-m", "moviemetadb.cli", "--db", str(self.db_path)] + args,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, msg=f"{proc.stdout}\n{proc.stderr}")
+        return proc.stdout
 
-        # List movies and capture output
-        args2 = type("B", (), {"db": db_path})
-        old_stdout = sys.stdout
-        sys.stdout = io.StringIO()
-        try:
-            self.assertEqual(list_movies(args2), 0)
-            output = sys.stdout.getvalue()
-        finally:
-            sys.stdout = old_stdout
+    def test_add_list_search_remove_update(self):
+        out = self._run_cli(["add", "Inception", "2010", "--rating", "8.8"])
+        self.assertIn("Added Inception (2010)", out)
 
-        self.assertIn("Inception (2010)", output)
+        out = self._run_cli(["list"])
+        self.assertIn("Inception (2010)", out)
+
+        out = self._run_cli(["search", "Inception"])
+        self.assertIn("Inception (2010)", out)
+
+        out = self._run_cli(["update-rating", "Inception", "2010", "9.2"])
+        self.assertIn("Updated Inception (2010) rating to 9.2", out)
+
+        out = self._run_cli(["remove", "Inception", "--year", "2010"])
+        self.assertIn("Removed Inception (2010)", out)
+
+        out = self._run_cli(["list"])
+        self.assertIn("No movies found.", out)
 
 
 if __name__ == "__main__":

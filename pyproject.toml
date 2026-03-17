@@ -16,3 +16,6 @@ requires-python = ">=3.9"
 
 [project.scripts]
 moviemetadb = "moviemetadb.cli:main"
+
+[project.optional-dependencies]
+web = ["fastapi>=0.100", "uvicorn[standard]>=0.22"]
