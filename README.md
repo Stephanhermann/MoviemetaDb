@@ -2,6 +2,8 @@
 
 A small starter project for managing movie metadata with a minimal Python library + CLI.
 
+This project uses SQLite by default (stored in `moviemetadb.db`).
+
 ## Getting started
 
 Install (recommended inside a virtualenv):
@@ -63,7 +65,8 @@ moviemetadb serve --host 0.0.0.0 --port 8000
 
 The web API will be available at `http://127.0.0.1:8000`.
 
-The data is stored in a JSON file by default (`moviemetadb.json`).
+By default the data is stored in an SQLite database (`moviemetadb.db`).
+You can also use a JSON file by passing `--db moviemetadb.json`.
 
 ## Development
 

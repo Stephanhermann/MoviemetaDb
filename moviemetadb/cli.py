@@ -7,10 +7,10 @@ import sys
 from pathlib import Path
 
 from . import Movie
-from .storage import JsonMovieStore, MovieNotFoundError
+from .storage import MovieNotFoundError, get_store
 
 
-DEFAULT_DB = Path("moviemetadb.json")
+DEFAULT_DB = Path("moviemetadb.db")
 
 
 def _run_cli(argv: list[str] | None = None) -> int:
@@ -58,8 +58,8 @@ def _run_cli(argv: list[str] | None = None) -> int:
     return args.func(args)
 
 
-def _create_store(db_path: Path) -> JsonMovieStore:
-    return JsonMovieStore(db_path)
+def _create_store(db_path: Path) -> object:
+    return get_store(db_path)
 
 
 def _cmd_add(args: argparse.Namespace) -> int:

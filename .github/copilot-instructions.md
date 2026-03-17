@@ -21,10 +21,15 @@ This project uses a standard Python packaging layout.
   python -m pip install -e .
   ```
 
-- Run the CLI:
+- Run the CLI (defaults to SQLite storage in `moviemetadb.db`):
   ```bash
   moviemetadb add "Inception" 2010 --rating 8.8
   moviemetadb list
+  ```
+
+- (Optional) Use JSON storage instead of SQLite:
+  ```bash
+  moviemetadb --db moviemetadb.json add "Inception" 2010 --rating 8.8
   ```
 
 - Run the unit tests:
