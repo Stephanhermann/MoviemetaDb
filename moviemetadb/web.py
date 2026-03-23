@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import List, Optional
 
 try:
     from fastapi import Depends, FastAPI, HTTPException, Security
@@ -42,7 +43,7 @@ store = None
 security = HTTPBearer(auto_error=False)
 
 
-def _require_api_key(cred: HTTPAuthorizationCredentials | None = Security(security)) -> bool:
+def _require_api_key(cred: Optional[HTTPAuthorizationCredentials] = Security(security)) -> bool:
     """Allow requests when no API key is configured, otherwise require Bearer token."""
     expected = os.getenv("MOVIEMETADB_API_KEY")
     if not expected:
@@ -66,13 +67,13 @@ def _startup() -> None:
 
 @app.get("/movies", dependencies=[Depends(_require_api_key)])
 def list_movies(
-    min_year: int | None = None,
-    max_year: int | None = None,
-    min_rating: float | None = None,
-    max_rating: float | None = None,
+    min_year: Optional[int] = None,
+    max_year: Optional[int] = None,
+    min_rating: Optional[float] = None,
+    max_rating: Optional[float] = None,
     sort: str = "title",
-    limit: int | None = None,
-) -> list[MovieIn]:
+    limit: Optional[int] = None,
+) -> List[MovieIn]:
     return _get_store_instance().list(
         min_year=min_year,
         max_year=max_year,
@@ -93,13 +94,13 @@ def create_movie(movie: MovieIn) -> MovieIn:
 @app.get("/movies/search", dependencies=[Depends(_require_api_key)])
 def search_movies(
     q: str,
-    min_year: int | None = None,
-    max_year: int | None = None,
-    min_rating: float | None = None,
-    max_rating: float | None = None,
+    min_year: Optional[int] = None,
+    max_year: Optional[int] = None,
+    min_rating: Optional[float] = None,
+    max_rating: Optional[float] = None,
     sort: str = "title",
-    limit: int | None = None,
-) -> list[MovieIn]:
+    limit: Optional[int] = None,
+) -> List[MovieIn]:
     return _get_store_instance().search(
         q,
         min_year=min_year,
@@ -112,7 +113,7 @@ def search_movies(
 
 
 @app.delete("/movies", dependencies=[Depends(_require_api_key)])
-def delete_movie(title: str, year: int | None = None) -> MovieIn:
+def delete_movie(title: str, year: Optional[int] = None) -> MovieIn:
     try:
         removed = _get_store_instance().remove(title, year)
         return removed
