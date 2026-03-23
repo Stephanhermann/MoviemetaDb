@@ -109,7 +109,8 @@ def list_movies_alias(
 @app.post("/movies", status_code=201, dependencies=[Depends(_require_api_key)])
 def create_movie(movie: MovieIn) -> MovieIn:
     from . import Movie as MovieModel
-    _get_store_instance().add(MovieModel(**movie.model_dump()))
+    payload = movie.model_dump() if hasattr(movie, "model_dump") else movie.dict()
+    _get_store_instance().add(MovieModel(**payload))
     return movie
 
 
