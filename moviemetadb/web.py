@@ -21,6 +21,18 @@ class MovieIn(BaseModel):
     title: str
     year: int
     rating: float = 0.0
+    file_path: str = ""
+    duration_seconds: float = 0.0
+    width: int = 0
+    height: int = 0
+    fps: float = 0.0
+    language: str = ""
+    transcript: str = ""
+    plot: str = ""
+    preview_path: str = ""
+    vision_model: str = ""
+    whisper_model: str = ""
+    analysed_at: str = ""
 
 
 app = FastAPI(title="MoviemetaDb API")
@@ -73,7 +85,8 @@ def list_movies(
 
 @app.post("/movies", status_code=201, dependencies=[Depends(_require_api_key)])
 def create_movie(movie: MovieIn) -> MovieIn:
-    _get_store_instance().add(movie)
+    from . import Movie as MovieModel
+    _get_store_instance().add(MovieModel(**movie.model_dump()))
     return movie
 
 

@@ -133,8 +133,10 @@ try:
         Float,
         Integer,
         String,
+        Text,
         create_engine,
         select,
+        text,
         update as sqlalchemy_update,
         delete as sqlalchemy_delete,
     )
@@ -157,6 +159,18 @@ if SQLALCHEMY_AVAILABLE:
         title = Column(String, nullable=False)
         year = Column(Integer, nullable=False)
         rating = Column(Float, nullable=False, default=0.0)
+        file_path = Column(Text, nullable=True, default="")
+        duration_seconds = Column(Float, nullable=True, default=0.0)
+        width = Column(Integer, nullable=True, default=0)
+        height = Column(Integer, nullable=True, default=0)
+        fps = Column(Float, nullable=True, default=0.0)
+        language = Column(String, nullable=True, default="")
+        transcript = Column(Text, nullable=True, default="")
+        plot = Column(Text, nullable=True, default="")
+        preview_path = Column(String, nullable=True, default="")
+        vision_model = Column(String, nullable=True, default="")
+        whisper_model = Column(String, nullable=True, default="")
+        analysed_at = Column(String, nullable=True, default="")
 
         __table_args__ = {"sqlite_autoincrement": True}
 
@@ -171,9 +185,53 @@ if SQLALCHEMY_AVAILABLE:
                 )
             self.engine = create_engine(url, future=True)
             Base.metadata.create_all(self.engine)
+            self._migrate()
 
         def _session(self) -> Session:
             return Session(self.engine)
+
+        def _migrate(self) -> None:
+            """Add any new columns to existing tables (forward migration)."""
+            new_cols = [
+                ("file_path", "TEXT DEFAULT ''"),
+                ("duration_seconds", "REAL DEFAULT 0.0"),
+                ("width", "INTEGER DEFAULT 0"),
+                ("height", "INTEGER DEFAULT 0"),
+                ("fps", "REAL DEFAULT 0.0"),
+                ("language", "TEXT DEFAULT ''"),
+                ("transcript", "TEXT DEFAULT ''"),
+                ("plot", "TEXT DEFAULT ''"),
+                ("preview_path", "TEXT DEFAULT ''"),
+                ("vision_model", "TEXT DEFAULT ''"),
+                ("whisper_model", "TEXT DEFAULT ''"),
+                ("analysed_at", "TEXT DEFAULT ''"),
+            ]
+            with self.engine.connect() as conn:
+                for col_name, col_def in new_cols:
+                    try:
+                        conn.execute(text(f"ALTER TABLE movies ADD COLUMN {col_name} {col_def}"))
+                        conn.commit()
+                    except Exception:
+                        pass  # Column already exists
+
+        def _row_to_movie(self, r: "MovieRow") -> Movie:
+            return Movie(
+                title=r.title,
+                year=r.year,
+                rating=r.rating,
+                file_path=r.file_path or "",
+                duration_seconds=r.duration_seconds or 0.0,
+                width=r.width or 0,
+                height=r.height or 0,
+                fps=r.fps or 0.0,
+                language=r.language or "",
+                transcript=r.transcript or "",
+                plot=r.plot or "",
+                preview_path=r.preview_path or "",
+                vision_model=r.vision_model or "",
+                whisper_model=r.whisper_model or "",
+                analysed_at=r.analysed_at or "",
+            )
 
         def _apply_filters(
             self,
@@ -217,7 +275,7 @@ if SQLALCHEMY_AVAILABLE:
 
             with self._session() as session:
                 rows = session.execute(stmt).scalars().all()
-                return [Movie(title=r.title, year=r.year, rating=r.rating) for r in rows]
+                return [self._row_to_movie(r) for r in rows]
 
         def add(self, movie: Movie) -> None:
             with self._session() as session:
@@ -232,8 +290,36 @@ if SQLALCHEMY_AVAILABLE:
                 )
                 if existing:
                     existing.rating = movie.rating
+                    existing.file_path = getattr(movie, "file_path", "")
+                    existing.duration_seconds = getattr(movie, "duration_seconds", 0.0)
+                    existing.width = getattr(movie, "width", 0)
+                    existing.height = getattr(movie, "height", 0)
+                    existing.fps = getattr(movie, "fps", 0.0)
+                    existing.language = getattr(movie, "language", "")
+                    existing.transcript = getattr(movie, "transcript", "")
+                    existing.plot = getattr(movie, "plot", "")
+                    existing.preview_path = getattr(movie, "preview_path", "")
+                    existing.vision_model = getattr(movie, "vision_model", "")
+                    existing.whisper_model = getattr(movie, "whisper_model", "")
+                    existing.analysed_at = getattr(movie, "analysed_at", "")
                 else:
-                    session.add(MovieRow(title=movie.title, year=movie.year, rating=movie.rating))
+                    session.add(MovieRow(
+                        title=movie.title,
+                        year=movie.year,
+                        rating=movie.rating,
+                        file_path=getattr(movie, "file_path", ""),
+                        duration_seconds=getattr(movie, "duration_seconds", 0.0),
+                        width=getattr(movie, "width", 0),
+                        height=getattr(movie, "height", 0),
+                        fps=getattr(movie, "fps", 0.0),
+                        language=getattr(movie, "language", ""),
+                        transcript=getattr(movie, "transcript", ""),
+                        plot=getattr(movie, "plot", ""),
+                        preview_path=getattr(movie, "preview_path", ""),
+                        vision_model=getattr(movie, "vision_model", ""),
+                        whisper_model=getattr(movie, "whisper_model", ""),
+                        analysed_at=getattr(movie, "analysed_at", ""),
+                    ))
                 session.commit()
 
         def remove(self, title: str, year: Optional[int] = None) -> Movie:
@@ -244,7 +330,7 @@ if SQLALCHEMY_AVAILABLE:
                 row = session.execute(stmt).scalars().first()
                 if row is None:
                     raise MovieNotFoundError(f"Movie not found: {title} ({year if year else 'any year'})")
-                movie = Movie(title=row.title, year=row.year, rating=row.rating)
+                movie = self._row_to_movie(row)
                 session.execute(sqlalchemy_delete(MovieRow).where(MovieRow.id == row.id))
                 session.commit()
                 return movie
@@ -275,7 +361,7 @@ if SQLALCHEMY_AVAILABLE:
 
             with self._session() as session:
                 rows = session.execute(stmt).scalars().all()
-                return [Movie(title=r.title, year=r.year, rating=r.rating) for r in rows]
+                return [self._row_to_movie(r) for r in rows]
 
         def update_rating(self, title: str, year: int, rating: float) -> Movie:
             with self._session() as session:
@@ -292,7 +378,7 @@ if SQLALCHEMY_AVAILABLE:
                     raise MovieNotFoundError(f"Movie not found: {title} ({year})")
                 row.rating = rating
                 session.commit()
-                return Movie(title=row.title, year=row.year, rating=row.rating)
+                return self._row_to_movie(row)
 
 
 def get_store(path: Union[Path, str]) -> Union[JsonMovieStore, "SqlAlchemyMovieStore"]:

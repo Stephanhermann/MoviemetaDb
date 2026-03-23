@@ -32,6 +32,11 @@ def _run_cli(argv: list[str] | None = None) -> int:
     add.add_argument("title", type=str, help="Movie title")
     add.add_argument("year", type=int, help="Release year")
     add.add_argument("--rating", type=float, default=0.0, help="Movie rating")
+    add.add_argument("--plot", type=str, default="", help="Plot / description")
+    add.add_argument("--file-path", type=str, default="", help="Path to video file")
+    add.add_argument("--duration", type=float, default=0.0, help="Duration in seconds")
+    add.add_argument("--language", type=str, default="", help="Language (e.g. de, en)")
+    add.add_argument("--preview-path", type=str, default="", help="Path to preview image")
     add.set_defaults(func=_cmd_add)
 
     list_cmd = sub.add_parser("list", help="List stored movies")
@@ -79,7 +84,16 @@ def _create_store(db_path: str) -> object:
 
 def _cmd_add(args: argparse.Namespace) -> int:
     store = _create_store(args.db)
-    movie = Movie(title=args.title, year=args.year, rating=args.rating)
+    movie = Movie(
+        title=args.title,
+        year=args.year,
+        rating=args.rating,
+        plot=args.plot,
+        file_path=args.file_path,
+        duration_seconds=args.duration,
+        language=args.language,
+        preview_path=args.preview_path,
+    )
     store.add(movie)
     print(f"Added {movie.title} ({movie.year}) to {args.db}")
     return 0
@@ -101,7 +115,15 @@ def _cmd_list(args: argparse.Namespace) -> int:
         return 0
 
     for m in movies:
-        print(f"- {m.title} ({m.year}) — rating: {m.rating}")
+        info = f"- {m.title} ({m.year}) — rating: {m.rating}"
+        if m.language:
+            info += f" | {m.language}"
+        if m.duration_seconds:
+            mins = int(m.duration_seconds // 60)
+            info += f" | {mins} min"
+        if m.file_path:
+            info += f"\n  {m.file_path}"
+        print(info)
     return 0
 
 
@@ -121,7 +143,15 @@ def _cmd_search(args: argparse.Namespace) -> int:
         return 0
 
     for m in results:
-        print(f"- {m.title} ({m.year}) — rating: {m.rating}")
+        info = f"- {m.title} ({m.year}) — rating: {m.rating}"
+        if m.language:
+            info += f" | {m.language}"
+        if m.duration_seconds:
+            mins = int(m.duration_seconds // 60)
+            info += f" | {mins} min"
+        if m.file_path:
+            info += f"\n  {m.file_path}"
+        print(info)
     return 0
 
 
