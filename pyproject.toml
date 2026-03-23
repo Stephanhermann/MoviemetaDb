@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "moviemetadb"
-version = "0.1.0"
+version = "0.2.0"
 description = "A simple movie metadata management library and CLI."
 authors = [{name = "Stephan Hermann"}]
 readme = "README.md"
