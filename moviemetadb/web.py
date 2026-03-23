@@ -15,7 +15,7 @@ except ImportError as exc:
         "FastAPI is not installed. Install with `pip install 'moviemetadb[web]'` to use the web API."
     ) from exc
 
-from .storage import MovieNotFoundError, get_store
+from .storage import MovieNotFoundError, PhotoNotFoundError, get_store
 
 
 class MovieIn(BaseModel):
@@ -34,6 +34,17 @@ class MovieIn(BaseModel):
     vision_model: str = ""
     whisper_model: str = ""
     analysed_at: str = ""
+
+
+class PhotoIn(BaseModel):
+    file_path: str
+    width: int = 0
+    height: int = 0
+    taken_at: str = ""
+    camera: str = ""
+    description: str = ""
+    tags: str = ""
+    album: str = ""
 
 
 app = FastAPI(title="MoviemetaDb API")
@@ -152,3 +163,60 @@ def delete_movie(title: str, year: Optional[int] = None) -> MovieIn:
 @app.delete("/movie", dependencies=[Depends(_require_api_key)])
 def delete_movie_alias(title: str, year: Optional[int] = None) -> MovieIn:
     return delete_movie(title, year)
+
+
+# ── Photo endpoints ─────────────────────────────────────────────────────────
+
+@app.get("/photos", dependencies=[Depends(_require_api_key)])
+def list_photos(
+    album: Optional[str] = None,
+    sort: str = "file_path",
+    limit: Optional[int] = None,
+) -> List[PhotoIn]:
+    return _get_store_instance().list_photos(album=album, sort=sort, limit=limit)
+
+
+@app.get("/photo", dependencies=[Depends(_require_api_key)])
+def list_photos_alias(
+    album: Optional[str] = None,
+    sort: str = "file_path",
+    limit: Optional[int] = None,
+) -> List[PhotoIn]:
+    return list_photos(album=album, sort=sort, limit=limit)
+
+
+@app.post("/photos", status_code=201, dependencies=[Depends(_require_api_key)])
+def create_photo(photo: PhotoIn) -> PhotoIn:
+    from . import Photo as PhotoModel
+    payload = photo.model_dump() if hasattr(photo, "model_dump") else photo.dict()
+    _get_store_instance().add_photo(PhotoModel(**payload))
+    return photo
+
+
+@app.post("/photo", status_code=201, dependencies=[Depends(_require_api_key)])
+def create_photo_alias(photo: PhotoIn) -> PhotoIn:
+    return create_photo(photo)
+
+
+@app.get("/photos/search", dependencies=[Depends(_require_api_key)])
+def search_photos(
+    q: str,
+    album: Optional[str] = None,
+    sort: str = "file_path",
+    limit: Optional[int] = None,
+) -> List[PhotoIn]:
+    return _get_store_instance().search_photos(q, album=album, sort=sort, limit=limit)
+
+
+@app.delete("/photos", dependencies=[Depends(_require_api_key)])
+def delete_photo(file_path: str) -> PhotoIn:
+    try:
+        removed = _get_store_instance().remove_photo(file_path)
+        return removed
+    except PhotoNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.delete("/photo", dependencies=[Depends(_require_api_key)])
+def delete_photo_alias(file_path: str) -> PhotoIn:
+    return delete_photo(file_path)

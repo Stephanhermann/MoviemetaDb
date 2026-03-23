@@ -27,6 +27,18 @@ class Movie:
     analysed_at: str = ""
 
 
+@dataclass
+class Photo:
+    file_path: str
+    width: int = 0
+    height: int = 0
+    taken_at: str = ""
+    camera: str = ""
+    description: str = ""
+    tags: str = ""
+    album: str = ""
+
+
 def normalize_title(title: str) -> str:
     """Normalize a movie title for consistent storage and lookup."""
     return title.strip().lower()
@@ -35,3 +47,8 @@ def normalize_title(title: str) -> str:
 def to_dict(movie: Movie) -> Dict[str, object]:
     """Serialize a Movie to a simple dict."""
     return asdict(movie)
+
+
+def photo_to_dict(photo: Photo) -> Dict[str, object]:
+    """Serialize a Photo to a simple dict."""
+    return asdict(photo)
