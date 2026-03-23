@@ -65,6 +65,16 @@ def _startup() -> None:
     store = get_store(os.getenv("MOVIEMETADB_DATABASE_URL", "moviemetadb.db"))
 
 
+@app.get("/")
+def root() -> dict:
+    return {
+        "name": "MoviemetaDb API",
+        "status": "ok",
+        "docs": "/docs",
+        "movies": "/movies",
+    }
+
+
 @app.get("/movies", dependencies=[Depends(_require_api_key)])
 def list_movies(
     min_year: Optional[int] = None,
@@ -84,11 +94,28 @@ def list_movies(
     )
 
 
+@app.get("/movie", dependencies=[Depends(_require_api_key)])
+def list_movies_alias(
+    min_year: Optional[int] = None,
+    max_year: Optional[int] = None,
+    min_rating: Optional[float] = None,
+    max_rating: Optional[float] = None,
+    sort: str = "title",
+    limit: Optional[int] = None,
+) -> List[MovieIn]:
+    return list_movies(min_year, max_year, min_rating, max_rating, sort, limit)
+
+
 @app.post("/movies", status_code=201, dependencies=[Depends(_require_api_key)])
 def create_movie(movie: MovieIn) -> MovieIn:
     from . import Movie as MovieModel
     _get_store_instance().add(MovieModel(**movie.model_dump()))
     return movie
+
+
+@app.post("/movie", status_code=201, dependencies=[Depends(_require_api_key)])
+def create_movie_alias(movie: MovieIn) -> MovieIn:
+    return create_movie(movie)
 
 
 @app.get("/movies/search", dependencies=[Depends(_require_api_key)])
@@ -119,3 +146,8 @@ def delete_movie(title: str, year: Optional[int] = None) -> MovieIn:
         return removed
     except MovieNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.delete("/movie", dependencies=[Depends(_require_api_key)])
+def delete_movie_alias(title: str, year: Optional[int] = None) -> MovieIn:
+    return delete_movie(title, year)
