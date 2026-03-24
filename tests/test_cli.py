@@ -13,7 +13,7 @@ class CliTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(__file__).resolve().parent / "tmp"
         self.tmp.mkdir(parents=True, exist_ok=True)
-        self.db_path = self.tmp / "movies.db"
+        self.db_path = self.tmp / "movies.json"
 
     def tearDown(self) -> None:
         if self.db_path.exists():

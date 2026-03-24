@@ -25,6 +25,9 @@ class JsonMovieStore:
     def __init__(self, path: Path) -> None:
         self.path = path
 
+    _MOVIE_SORT_FIELDS = {"title", "year", "rating"}
+    _PHOTO_SORT_FIELDS = {"file_path", "taken_at", "album"}
+
     def _read(self) -> List[dict]:
         if not self.path.exists():
             return []
@@ -56,7 +59,8 @@ class JsonMovieStore:
         if max_rating is not None:
             movies = [m for m in movies if m.rating <= max_rating]
 
-        movies.sort(key=lambda m: getattr(m, sort))
+        sort_key = sort if sort in self._MOVIE_SORT_FIELDS else "title"
+        movies.sort(key=lambda m: getattr(m, sort_key))
         if limit is not None:
             movies = movies[:limit]
         return movies
@@ -108,7 +112,8 @@ class JsonMovieStore:
         if max_rating is not None:
             movies = [m for m in movies if m.rating <= max_rating]
 
-        movies.sort(key=lambda m: getattr(m, sort))
+        sort_key = sort if sort in self._MOVIE_SORT_FIELDS else "title"
+        movies.sort(key=lambda m: getattr(m, sort_key))
         if limit is not None:
             movies = movies[:limit]
         return movies
@@ -167,10 +172,8 @@ class JsonMovieStore:
         photos = [Photo(**d) for d in self._read_photos()]
         if album is not None:
             photos = [p for p in photos if p.album == album]
-        try:
-            photos.sort(key=lambda p: getattr(p, sort, "") or "")
-        except Exception:
-            pass
+        sort_key = sort if sort in self._PHOTO_SORT_FIELDS else "file_path"
+        photos.sort(key=lambda p: getattr(p, sort_key, "") or "")
         if limit is not None:
             photos = photos[:limit]
         return photos
@@ -206,10 +209,8 @@ class JsonMovieStore:
         ]
         if album is not None:
             photos = [p for p in photos if p.album == album]
-        try:
-            photos.sort(key=lambda p: getattr(p, sort, "") or "")
-        except Exception:
-            pass
+        sort_key = sort if sort in self._PHOTO_SORT_FIELDS else "file_path"
+        photos.sort(key=lambda p: getattr(p, sort_key, "") or "")
         if limit is not None:
             photos = photos[:limit]
         return photos
