@@ -9,6 +9,9 @@ __pycache__/
 # temporary test artifacts
 tests/tmp/
 
+# local runtime database
+moviemetadb.db
+
 # packaging
 dist/
 build/
