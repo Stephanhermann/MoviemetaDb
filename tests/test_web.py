@@ -59,6 +59,26 @@ class WebApiTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(r.json()), 0)
 
+    def test_movie_filters_sort_and_limit(self):
+        self.client.post("/movies", json={"title": "C", "year": 2001, "rating": 6.0})
+        self.client.post("/movies", json={"title": "A", "year": 2005, "rating": 8.0})
+        self.client.post("/movies", json={"title": "B", "year": 2010, "rating": 9.0})
+
+        r = self.client.get("/movies", params={"min_year": 2003, "min_rating": 7.0, "sort": "year"})
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual([m["title"] for m in data], ["A", "B"])
+
+        # invalid sort should not crash, and should fallback to default order
+        r = self.client.get("/movies", params={"sort": "not-a-field", "limit": 2})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.json()), 2)
+
+    def test_movie_validation_error(self):
+        # missing required field "year"
+        r = self.client.post("/movies", json={"title": "Invalid"})
+        self.assertEqual(r.status_code, 422)
+
     def test_photo_crud_and_search(self):
         payload = {
             "file_path": "/pics/trip/sunset.jpg",
@@ -87,6 +107,20 @@ class WebApiTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(len(r.json()), 0)
 
+    def test_photo_filters_sort_and_limit(self):
+        self.client.post("/photos", json={"file_path": "/pics/a.jpg", "album": "Trip", "taken_at": "2024-01-01"})
+        self.client.post("/photos", json={"file_path": "/pics/b.jpg", "album": "Family", "taken_at": "2024-03-01"})
+        self.client.post("/photos", json={"file_path": "/pics/c.jpg", "album": "Trip", "taken_at": "2024-02-01"})
+
+        r = self.client.get("/photos", params={"album": "Trip", "sort": "taken_at"})
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual([p["file_path"] for p in data], ["/pics/a.jpg", "/pics/c.jpg"])
+
+        r = self.client.get("/photos", params={"sort": "not-a-field", "limit": 1})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.json()), 1)
+
     def test_api_key_auth(self):
         self.client.close()
         os.environ["MOVIEMETADB_API_KEY"] = "secret-key"
@@ -94,6 +128,9 @@ class WebApiTest(unittest.TestCase):
         self.client = TestClient(web.app)
 
         r = self.client.get("/movies")
+        self.assertEqual(r.status_code, 401)
+
+        r = self.client.get("/movies", headers={"Authorization": "Bearer wrong-key"})
         self.assertEqual(r.status_code, 401)
 
         r = self.client.get("/movies", headers={"Authorization": "Bearer secret-key"})
